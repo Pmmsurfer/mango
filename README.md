@@ -1,36 +1,104 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mango
 
-## Getting Started
+The CRM for brands in retail.
 
-First, run the development server:
+A Next.js 15 (App Router) + Supabase app for emerging CPG brands tracking accounts, buyers, interactions, and reorders across retail doors.
+
+## Quick start
 
 ```bash
+npm install
+cp .env.example .env.local   # or create .env.local with the three keys below
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3737>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Required environment variables (`.env.local`)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
 
-## Learn More
+The service role key is used server-side to seed sample data on first signup. Never expose it to the browser.
 
-To learn more about Next.js, take a look at the following resources:
+### Apply the database schema
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Open your Supabase project's **SQL Editor**.
+2. Paste the contents of `supabase/migrations/0001_init.sql`.
+3. Click **Run**.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+This creates 6 tables (`brands`, `accounts`, `buyers`, `interactions`, `reorders`, `reminders`), 2 enums, RLS on every table, and a public `brand-logos` storage bucket.
 
-## Deploy on Vercel
+### Configure Supabase auth
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+In **Authentication → URL Configuration**:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Site URL**: `http://localhost:3737` (or your production URL)
+- **Redirect URLs**: add `http://localhost:3737/auth/callback`
+
+## Try it
+
+1. Visit `/` — marketing landing page.
+2. Click **Start free trial** → enter email → check inbox for magic link.
+3. Click magic link → land on `/onboarding`, enter brand name.
+4. Sample data seeds; you land on `/app/pipeline` with 12 retailer accounts pre-populated.
+
+## Stack
+
+- Next.js 15 (App Router, Server Components, Server Actions)
+- TypeScript
+- Tailwind CSS v4 (CSS-first `@theme` tokens)
+- shadcn/ui (base-nova preset, Base UI primitives)
+- Supabase (Postgres + Auth magic link + Storage)
+- `@dnd-kit/core` for the pipeline drag-and-drop
+- Zod for input validation
+- date-fns for relative dates
+
+## Routes
+
+| Path | Purpose |
+| --- | --- |
+| `/` | Marketing landing |
+| `/login`, `/signup` | Magic-link auth |
+| `/auth/callback` | OAuth code exchange |
+| `/onboarding` | First-time brand name + seed |
+| `/app/pipeline` | Kanban board (5 stages, drag-and-drop) |
+| `/app/accounts` | Flat list of accounts |
+| `/app/accounts/[id]` | Account detail (Overview / Buyers / History tabs) |
+| `/app/radar` | Reorder Radar — cadence-aware reorder tracking |
+| `/app/buyers` | All buyers across accounts; "Buyer changed jobs" flow |
+| `/app/settings` | Brand profile + billing placeholder |
+
+## Reorder Radar status rules
+
+For each `on_shelf` / `reordering` account, we compute:
+
+- **cadence** = average days between historical reorders
+- **days_since** = days since the most recent reorder
+- **ratio** = days_since / cadence
+
+| Ratio | Status |
+| --- | --- |
+| < 1.2 | On track |
+| 1.2 – 1.5 | Slipping |
+| 1.5 – 2.0 | At risk |
+| > 2.0 | Drifting |
+
+Most-urgent rows surface first.
+
+## Scripts
+
+- `npm run dev` — Turbopack dev server (port 3737 if `PORT=3737` is set; otherwise 3000)
+- `npm run build` — Production build
+- `npm run start` — Run the production build
+- `npm run lint` — ESLint
+
+## Deployment (Vercel)
+
+1. Push this repo to GitHub.
+2. Import into Vercel.
+3. Set the three env vars in the project settings.
+4. Update **Site URL** and **Redirect URLs** in Supabase to your production URL.
