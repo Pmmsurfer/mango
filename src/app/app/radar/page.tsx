@@ -6,7 +6,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { buildRadar, STATUS_LABEL, STATUS_VARIANT } from "@/lib/radar";
 import { Italic } from "@/components/ui/italic";
 import { relative } from "@/lib/format";
-import { LogReorderDialog, RadarRowMenu } from "@/components/radar/radar-actions";
+import {
+  LogReorderDialog,
+  RadarRowMenu,
+  type ProductOption,
+} from "@/components/radar/radar-actions";
 import type { Account, Reorder } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +19,12 @@ export default async function RadarPage() {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [{ data: accountsData }, { data: reordersData }, { data: snoozed }] = await Promise.all([
+  const [
+    { data: accountsData },
+    { data: reordersData },
+    { data: snoozed },
+    { data: productsData },
+  ] = await Promise.all([
     supabase
       .from("accounts")
       .select("*")
@@ -29,7 +38,14 @@ export default async function RadarPage() {
       .select("account_id, due_date")
       .eq("completed", false)
       .gte("due_date", today),
+    supabase
+      .from("products")
+      .select("id, name, sku, wholesale_price_cents, unit_cost_cents")
+      .eq("active", true)
+      .order("name", { ascending: true }),
   ]);
+
+  const productOptions = (productsData ?? []) as ProductOption[];
 
   const snoozedIds = new Set(
     (snoozed ?? []).map((r) => (r as { account_id: string }).account_id)
@@ -135,7 +151,10 @@ export default async function RadarPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        <LogReorderDialog accountId={r.account.id} />
+                        <LogReorderDialog
+                          accountId={r.account.id}
+                          products={productOptions}
+                        />
                         <RadarRowMenu accountId={r.account.id} />
                       </div>
                     </td>

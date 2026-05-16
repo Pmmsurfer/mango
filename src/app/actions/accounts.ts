@@ -155,6 +155,7 @@ export async function addBuyer(
 
 const ReorderSchema = z.object({
   account_id: z.string().uuid(),
+  product_id: z.string().uuid().optional().or(z.literal("")),
   units: z.coerce.number().int().min(0).max(1_000_000).optional(),
   dollars: z.coerce.number().min(0).max(10_000_000).optional(),
   notes: z.string().trim().max(2000).optional().or(z.literal("")),
@@ -166,6 +167,7 @@ export async function logReorder(
 ): Promise<{ ok: boolean; error?: string }> {
   const parsed = ReorderSchema.safeParse({
     account_id: formData.get("account_id"),
+    product_id: formData.get("product_id") || "",
     units: formData.get("units") || undefined,
     dollars: formData.get("dollars") || undefined,
     notes: formData.get("notes"),
@@ -174,12 +176,29 @@ export async function logReorder(
 
   const supabase = await createClient();
   const occurred_at = new Date().toISOString();
+
+  let productSummary = "";
+  let unitCostCents: number | null = null;
+  if (parsed.data.product_id) {
+    const { data: product } = await supabase
+      .from("products")
+      .select("name, sku, unit_cost_cents")
+      .eq("id", parsed.data.product_id)
+      .maybeSingle();
+    if (product) {
+      unitCostCents = product.unit_cost_cents;
+      productSummary = product.sku ? `${product.sku} · ` : `${product.name} · `;
+    }
+  }
+
   const { error } = await supabase.from("reorders").insert({
     account_id: parsed.data.account_id,
     occurred_at,
     units: parsed.data.units ?? null,
     dollars: parsed.data.dollars ?? null,
     notes: parsed.data.notes || null,
+    product_id: parsed.data.product_id || null,
+    unit_cost_cents: unitCostCents,
   });
   if (error) return { ok: false, error: error.message };
 
@@ -187,7 +206,7 @@ export async function logReorder(
     account_id: parsed.data.account_id,
     type: "reorder",
     summary: parsed.data.units
-      ? `Reorder · ${parsed.data.units} units${
+      ? `${productSummary}Reorder · ${parsed.data.units} units${
           parsed.data.dollars ? ` · $${parsed.data.dollars.toFixed(0)}` : ""
         }`
       : "Reorder logged",

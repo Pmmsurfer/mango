@@ -96,7 +96,25 @@ export type Reorder = {
   units: number | null;
   dollars: number | null;
   notes: string | null;
+  product_id: string | null;
+  unit_cost_cents: number | null;
   created_at: string;
+};
+
+export type Product = {
+  id: string;
+  brand_id: string;
+  name: string;
+  sku: string | null;
+  upc: string | null;
+  unit_cost_cents: number;
+  wholesale_price_cents: number;
+  msrp_cents: number | null;
+  case_pack: number;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Reminder = {

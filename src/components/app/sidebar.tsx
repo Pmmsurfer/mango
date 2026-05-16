@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Columns3, Radar, Users, Settings, Building2, LogOut } from "lucide-react";
+import { Columns3, Radar, Users, Settings, Building2, LogOut, Package } from "lucide-react";
 import { Wordmark } from "@/components/brand/wordmark";
 import { signOut } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ const items = [
   { href: "/app/radar", label: "Radar", icon: Radar },
   { href: "/app/accounts", label: "Accounts", icon: Building2 },
   { href: "/app/buyers", label: "Buyers", icon: Users },
+  { href: "/app/products", label: "Products", icon: Package },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 

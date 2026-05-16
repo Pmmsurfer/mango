@@ -17,13 +17,35 @@ import {
 import { logReorder, markAccountLost, snoozeAccount } from "@/app/actions/accounts";
 import { MoreHorizontal } from "lucide-react";
 
-export function LogReorderDialog({ accountId }: { accountId: string }) {
+export type ProductOption = {
+  id: string;
+  name: string;
+  sku: string | null;
+  wholesale_price_cents: number;
+  unit_cost_cents: number;
+};
+
+export function LogReorderDialog({
+  accountId,
+  products = [],
+}: {
+  accountId: string;
+  products?: ProductOption[];
+}) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(logReorder, null);
+  const [productId, setProductId] = useState("");
+  const [units, setUnits] = useState("");
+  const selected = products.find((p) => p.id === productId);
 
   useEffect(() => {
     if (state?.ok) setOpen(false);
   }, [state]);
+
+  const autoDollars =
+    selected && units && !Number.isNaN(Number(units))
+      ? ((selected.wholesale_price_cents * Number(units)) / 100).toFixed(2)
+      : "";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -38,9 +60,44 @@ export function LogReorderDialog({ accountId }: { accountId: string }) {
         </DialogHeader>
         <form action={formAction} className="mt-2 flex flex-col gap-3">
           <input type="hidden" name="account_id" value={accountId} />
+          {products.length > 0 ? (
+            <label className="flex flex-col gap-1">
+              <span className="font-data text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+                SKU (optional, but unlocks margin)
+              </span>
+              <select
+                name="product_id"
+                value={productId}
+                onChange={(e) => setProductId(e.target.value)}
+                className="rounded-md border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-mango focus:ring-2 focus:ring-mango/20"
+              >
+                <option value="">— None —</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.sku ? `${p.sku} — ${p.name}` : p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Units" name="units" type="number" placeholder="120" />
-            <Field label="Dollars" name="dollars" type="number" placeholder="540" />
+            <Field
+              label="Units"
+              name="units"
+              type="number"
+              placeholder="120"
+              value={units}
+              onChange={(e) => setUnits(e.currentTarget.value)}
+            />
+            <Field
+              label="Dollars"
+              name="dollars"
+              type="number"
+              step="0.01"
+              placeholder={autoDollars || "540"}
+              defaultValue={autoDollars}
+              key={autoDollars}
+            />
           </div>
           <label className="flex flex-col gap-1">
             <span className="font-data text-[10px] uppercase tracking-[0.18em] text-ink-mute">

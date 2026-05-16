@@ -10,19 +10,26 @@ import { InteractionRow } from "@/components/account/interaction-row";
 import { AddBuyerDialog } from "@/components/account/add-buyer-dialog";
 import { LogInteractionDialog } from "@/components/account/log-interaction-dialog";
 import {
+  LogReorderDialog,
+  type ProductOption,
+} from "@/components/radar/radar-actions";
+import { MarginWindowToggle } from "@/components/products/margin-window";
+import { rollupReorders, type MarginWindow } from "@/lib/margin";
+import {
   STAGE_LABELS,
   INTERACTION_LABELS,
   type Account,
   type Buyer,
   type Interaction,
   type InteractionType,
+  type Product,
   type Reorder,
 } from "@/lib/types";
-import { relative, shortDate } from "@/lib/format";
+import { relative, shortDate, dollars, percent } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-type Search = Promise<{ tab?: string; type?: string }>;
+type Search = Promise<{ tab?: string; type?: string; win?: MarginWindow }>;
 
 export default async function AccountDetailPage({
   params,
@@ -32,41 +39,66 @@ export default async function AccountDetailPage({
   searchParams: Search;
 }) {
   const { id } = await params;
-  const { tab = "overview", type } = await searchParams;
+  const { tab = "overview", type, win = "90d" } = await searchParams;
+  const window: MarginWindow = (["30d", "90d", "all"] as const).includes(win)
+    ? win
+    : "90d";
 
   const supabase = await createClient();
 
-  const [{ data: account }, { data: buyers }, { data: interactions }, { data: reorders }] =
-    await Promise.all([
-      supabase.from("accounts").select("*").eq("id", id).maybeSingle(),
-      supabase
-        .from("buyers")
-        .select("*")
-        .eq("account_id", id)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("interactions")
-        .select("*")
-        .eq("account_id", id)
-        .order("occurred_at", { ascending: false }),
-      supabase
-        .from("reorders")
-        .select("*")
-        .eq("account_id", id)
-        .order("occurred_at", { ascending: false }),
-    ]);
+  const [
+    { data: account },
+    { data: buyers },
+    { data: interactions },
+    { data: reorders },
+    { data: products },
+  ] = await Promise.all([
+    supabase.from("accounts").select("*").eq("id", id).maybeSingle(),
+    supabase
+      .from("buyers")
+      .select("*")
+      .eq("account_id", id)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("interactions")
+      .select("*")
+      .eq("account_id", id)
+      .order("occurred_at", { ascending: false }),
+    supabase
+      .from("reorders")
+      .select("*")
+      .eq("account_id", id)
+      .order("occurred_at", { ascending: false }),
+    supabase
+      .from("products")
+      .select("*")
+      .order("name", { ascending: true }),
+  ]);
 
   if (!account) notFound();
   const a = account as Account;
   const bs = (buyers ?? []) as Buyer[];
   const is = (interactions ?? []) as Interaction[];
   const rs = (reorders ?? []) as Reorder[];
+  const ps = (products ?? []) as Product[];
+  const productsById = new Map(ps.map((p) => [p.id, p]));
 
   const buyersById = new Map(bs.map((b) => [b.id, b.name]));
 
   const lastInteraction = is[0];
   const lastReorder = rs[0];
   const cadence = computeCadence(rs);
+  const costFallback = new Map(ps.map((p) => [p.id, p.unit_cost_cents]));
+  const margin = rollupReorders(rs, costFallback, window);
+  const productOptions: ProductOption[] = ps
+    .filter((p) => p.active)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      sku: p.sku,
+      wholesale_price_cents: p.wholesale_price_cents,
+      unit_cost_cents: p.unit_cost_cents,
+    }));
 
   return (
     <>
@@ -91,12 +123,15 @@ export default async function AccountDetailPage({
               {a.region ? ` · ${a.region}` : ""}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {(a.tags ?? []).map((t) => (
-              <Tag key={t} variant="neutral">
-                {t}
-              </Tag>
-            ))}
+          <div className="flex flex-col items-end gap-2">
+            <LogReorderDialog accountId={a.id} products={productOptions} />
+            <div className="flex flex-wrap justify-end gap-2">
+              {(a.tags ?? []).map((t) => (
+                <Tag key={t} variant="neutral">
+                  {t}
+                </Tag>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -121,6 +156,9 @@ export default async function AccountDetailPage({
             cadence={cadence}
             interactions={is.slice(0, 10)}
             buyers={bs}
+            margin={margin}
+            marginWindow={window}
+            productsById={productsById}
           />
         ) : tab === "buyers" ? (
           <BuyersTab accountId={a.id} buyers={bs} />
@@ -130,6 +168,8 @@ export default async function AccountDetailPage({
             buyers={bs}
             interactions={is}
             buyersById={buyersById}
+            reordersById={new Map(rs.map((r) => [r.id, r]))}
+            productsById={productsById}
             filterType={type as InteractionType | undefined}
           />
         ) : null}
@@ -162,6 +202,9 @@ function OverviewTab({
   interactions,
   buyers,
   buyersById,
+  margin,
+  marginWindow,
+  productsById,
 }: {
   a: Account;
   lastInteractionAt?: string;
@@ -170,7 +213,11 @@ function OverviewTab({
   interactions: Interaction[];
   buyers: Buyer[];
   buyersById: Map<string, string>;
+  margin: ReturnType<typeof rollupReorders>;
+  marginWindow: MarginWindow;
+  productsById: Map<string, Product>;
 }) {
+  void productsById; // reserved for future per-SKU breakdown in overview
   return (
     <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
       <div className="space-y-6">
@@ -185,6 +232,26 @@ function OverviewTab({
             value={lastReorderAt ? relative(lastReorderAt) : "—"}
           />
           <Metric label="Cadence" value={cadence ? `${cadence}d` : "—"} />
+        </div>
+
+        <div className="rounded-lg border border-line bg-surface p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-display text-lg text-ink">Margin</h3>
+              <p className="font-data text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+                {margin.countTagged} tagged reorder{margin.countTagged === 1 ? "" : "s"}
+                {margin.countUntagged > 0
+                  ? ` · ${margin.countUntagged} untagged`
+                  : ""}
+              </p>
+            </div>
+            <MarginWindowToggle active={marginWindow} />
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            <Metric label="Revenue" value={dollars(margin.revenueCents)} />
+            <Metric label="COGS" value={dollars(margin.cogsCents)} />
+            <Metric label="Margin" value={percent(margin.marginPct)} />
+          </div>
         </div>
 
         <div className="rounded-lg border border-line bg-surface">
@@ -332,14 +399,20 @@ function HistoryTab({
   buyers,
   interactions,
   buyersById,
+  reordersById,
+  productsById,
   filterType,
 }: {
   accountId: string;
   buyers: Buyer[];
   interactions: Interaction[];
   buyersById: Map<string, string>;
+  reordersById: Map<string, Reorder>;
+  productsById: Map<string, Product>;
   filterType?: InteractionType;
 }) {
+  void reordersById;
+  void productsById;
   const list = filterType
     ? interactions.filter((i) => i.type === filterType)
     : interactions;
